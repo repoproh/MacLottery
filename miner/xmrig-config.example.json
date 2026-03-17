@@ -1,0 +1,52 @@
+{
+    "autosave": false,
+    "cpu": {
+        "enabled": true,
+        "huge-pages": true,
+        "huge-pages-jit": true,
+        "hw-aes": true,
+        "priority": 2,
+        "max-threads-hint": 75,
+        "asm": true,
+        "argon2-impl": null,
+        "cn/0": false,
+        "cn-lite/0": false
+    },
+    "donate-level": 0,
+    "donate-over-proxy": 0,
+    "log-file": null,
+    "pools": [
+        {
+            "url": "pool.hashvault.pro:443",
+            "user": "YOUR_XMR_ADDRESS_HERE",
+            "pass": "maclottery",
+            "rig-id": "maclottery",
+            "tls": true,
+            "keepalive": true,
+            "nicehash": false
+        },
+        {
+            "url": "pool.supportxmr.com:443",
+            "user": "YOUR_XMR_ADDRESS_HERE",
+            "pass": "maclottery",
+            "rig-id": "maclottery",
+            "tls": true,
+            "keepalive": true,
+            "nicehash": false
+        },
+        {
+            "url": "xmr.2miners.com:2222",
+            "user": "YOUR_XMR_ADDRESS_HERE",
+            "pass": "maclottery",
+            "rig-id": "maclottery",
+            "tls": false,
+            "keepalive": true,
+            "nicehash": false
+        }
+    ],
+    "print-time": 30,
+    "retries": 5,
+    "retry-pause": 5,
+    "syslog": false,
+    "threads": 6
+}

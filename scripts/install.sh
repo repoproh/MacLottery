@@ -1,0 +1,271 @@
+#!/bin/bash
+# ============================================================================
+# MacLottery Installer
+# Dual Bitcoin + Monero Mining Toolkit for Apple Silicon Macs
+# ============================================================================
+
+set -euo pipefail
+
+MACLOTTERY_DIR="$HOME/MacLottery"
+DATA_DIR="$HOME/.maclottery"
+LAUNCH_AGENTS_DIR="$HOME/Library/LaunchAgents"
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
+DIM='\033[2m'
+RESET='\033[0m'
+
+echo ""
+echo -e "${BOLD}${CYAN}============================================${RESET}"
+echo -e "${BOLD}  MacLottery Installer${RESET}"
+echo -e "${DIM}  Dual BTC + XMR Mining for Apple Silicon${RESET}"
+echo -e "${BOLD}${CYAN}============================================${RESET}"
+echo ""
+
+# --- Step 1: Check for Apple Silicon ---
+echo -e "${BOLD}[1/7] Checking system requirements...${RESET}"
+
+ARCH=$(uname -m)
+if [[ "$ARCH" != "arm64" ]]; then
+    echo -e "${RED}ERROR: Apple Silicon (arm64) required.${RESET}"
+    echo "  Detected: $ARCH"
+    echo "  MacLottery uses Metal GPU shaders which require Apple Silicon."
+    exit 1
+fi
+echo -e "  ${GREEN}✓${RESET} Apple Silicon detected ($ARCH)"
+
+OS_VERSION=$(sw_vers -productVersion)
+echo -e "  ${GREEN}✓${RESET} macOS $OS_VERSION"
+
+# Check for Xcode Command Line Tools
+if ! command -v swiftc &>/dev/null; then
+    echo -e "  ${YELLOW}! Xcode Command Line Tools not found${RESET}"
+    echo "  Installing now (this may take a few minutes)..."
+    xcode-select --install 2>/dev/null || true
+    echo ""
+    echo -e "${YELLOW}Please wait for Xcode CLT installation to complete, then re-run this script.${RESET}"
+    exit 1
+fi
+echo -e "  ${GREEN}✓${RESET} Xcode Command Line Tools installed"
+echo ""
+
+# --- Step 2: Install Homebrew + XMRig ---
+echo -e "${BOLD}[2/7] Installing XMRig (Monero CPU miner)...${RESET}"
+
+if ! command -v brew &>/dev/null; then
+    echo -e "  ${YELLOW}Homebrew not found. Installing...${RESET}"
+    /bin/bash -c "$(curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh)"
+    # Add brew to PATH for this session
+    eval "$(/opt/homebrew/bin/brew shellenv)"
+    echo -e "  ${GREEN}✓${RESET} Homebrew installed"
+else
+    echo -e "  ${GREEN}✓${RESET} Homebrew already installed"
+fi
+
+if ! command -v xmrig &>/dev/null; then
+    echo "  Installing xmrig via Homebrew..."
+    brew install xmrig
+    echo -e "  ${GREEN}✓${RESET} XMRig installed"
+else
+    echo -e "  ${GREEN}✓${RESET} XMRig already installed ($(xmrig --version 2>/dev/null | head -1 || echo 'unknown version'))"
+fi
+echo ""
+
+# --- Step 3: Build MacMetalCLI ---
+echo -e "${BOLD}[3/7] Building MacMetalCLI (Bitcoin GPU miner)...${RESET}"
+
+if [[ ! -f "$MACLOTTERY_DIR/miner/MacMetalCLI.swift" ]]; then
+    echo -e "${RED}ERROR: Source not found at $MACLOTTERY_DIR/miner/MacMetalCLI.swift${RESET}"
+    echo "  Make sure you cloned the MacLottery repo to ~/MacLottery"
+    exit 1
+fi
+
+chmod +x "$MACLOTTERY_DIR/miner/build.sh"
+bash "$MACLOTTERY_DIR/miner/build.sh"
+echo -e "  ${GREEN}✓${RESET} MacMetalCLI built and verified"
+echo ""
+
+# --- Step 4: Prompt for wallet addresses ---
+echo -e "${BOLD}[4/7] Wallet configuration...${RESET}"
+echo ""
+
+# BTC Address
+echo -e "  ${CYAN}Enter your Bitcoin address${RESET} (bc1q... or 1... or 3...):"
+echo -n "  BTC> "
+read -r BTC_ADDRESS
+if [[ -z "$BTC_ADDRESS" ]]; then
+    echo -e "  ${RED}ERROR: BTC address is required for solo mining.${RESET}"
+    exit 1
+fi
+echo -e "  ${GREEN}✓${RESET} BTC address: ${DIM}${BTC_ADDRESS:0:12}...${RESET}"
+echo ""
+
+# XMR Address
+echo -e "  ${CYAN}Enter your Monero address${RESET} (4... or 8...):"
+echo -e "  ${DIM}  (Leave blank to set up later)${RESET}"
+echo -n "  XMR> "
+read -r XMR_ADDRESS
+
+if [[ -z "$XMR_ADDRESS" ]]; then
+    echo -e "  ${YELLOW}! No XMR address provided. XMR mining will not start until configured.${RESET}"
+    XMR_ADDRESS="YOUR_XMR_ADDRESS_HERE"
+else
+    echo -e "  ${GREEN}✓${RESET} XMR address: ${DIM}${XMR_ADDRESS:0:12}...${RESET}"
+fi
+echo ""
+
+# --- Step 5: Generate configs ---
+echo -e "${BOLD}[5/7] Generating configuration files...${RESET}"
+
+# Create data directory
+mkdir -p "$DATA_DIR"
+echo -e "  ${GREEN}✓${RESET} Created $DATA_DIR"
+
+# Generate xmrig-config.json from example
+XMRIG_CONFIG="$MACLOTTERY_DIR/miner/xmrig-config.json"
+sed "s|YOUR_XMR_ADDRESS_HERE|${XMR_ADDRESS}|g" \
+    "$MACLOTTERY_DIR/miner/xmrig-config.example.json" > "$XMRIG_CONFIG"
+
+# Set log path in config
+if command -v python3 &>/dev/null; then
+    python3 -c "
+import json
+with open('$XMRIG_CONFIG', 'r') as f:
+    cfg = json.load(f)
+cfg['log-file'] = '$DATA_DIR/xmr.log'
+with open('$XMRIG_CONFIG', 'w') as f:
+    json.dump(cfg, f, indent=4)
+" 2>/dev/null || true
+fi
+echo -e "  ${GREEN}✓${RESET} Generated xmrig-config.json"
+
+# Write BTC address to environment config
+cat > "$DATA_DIR/config.env" <<EOF
+# MacLottery Configuration
+# Generated by install.sh on $(date)
+MACLOTTERY_BTC_ADDRESS="$BTC_ADDRESS"
+MACLOTTERY_BTC_POOL="solo.ckpool.org:3333"
+MACLOTTERY_WORKER="maclottery"
+EOF
+echo -e "  ${GREEN}✓${RESET} Saved config to $DATA_DIR/config.env"
+echo ""
+
+# --- Step 6: Install LaunchAgent ---
+echo -e "${BOLD}[6/7] Installing LaunchAgent (auto-start on login)...${RESET}"
+
+mkdir -p "$LAUNCH_AGENTS_DIR"
+
+# Generate plist with actual HOME path and BTC address
+PLIST_FILE="$LAUNCH_AGENTS_DIR/com.maclottery.plist"
+cat > "$PLIST_FILE" <<PLIST_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.maclottery</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>$HOME/MacLottery/scripts/dual-miner.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>KeepAlive</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string>$DATA_DIR/launchd-stdout.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>$DATA_DIR/launchd-stderr.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+        <key>MACLOTTERY_BTC_ADDRESS</key>
+        <string>$BTC_ADDRESS</string>
+        <key>MACLOTTERY_WORKER</key>
+        <string>maclottery</string>
+    </dict>
+</dict>
+</plist>
+PLIST_EOF
+
+echo -e "  ${GREEN}✓${RESET} Installed LaunchAgent to $PLIST_FILE"
+echo ""
+
+echo -e "  Load now with:"
+echo -e "    ${CYAN}launchctl load $PLIST_FILE${RESET}"
+echo -e "  Stop with:"
+echo -e "    ${CYAN}launchctl unload $PLIST_FILE${RESET}"
+echo ""
+
+# --- Step 7: Monero Wallet ---
+echo -e "${BOLD}[7/7] Monero wallet setup...${RESET}"
+
+if [[ "$XMR_ADDRESS" == "YOUR_XMR_ADDRESS_HERE" ]]; then
+    echo ""
+    echo -e "  ${YELLOW}You haven't set an XMR address yet.${RESET}"
+    echo -e "  Would you like guidance on creating a Monero wallet? [y/N]"
+    echo -n "  > "
+    read -r CREATE_WALLET
+
+    if [[ "$CREATE_WALLET" =~ ^[Yy]$ ]]; then
+        echo ""
+        echo -e "  ${BOLD}Recommended Monero wallets:${RESET}"
+        echo ""
+        echo -e "  ${CYAN}1. Cake Wallet${RESET} (iOS/Android/Desktop)"
+        echo -e "     https://cakewallet.com"
+        echo -e "     Easy, mobile-friendly, supports XMR/BTC/LTC"
+        echo ""
+        echo -e "  ${CYAN}2. Feather Wallet${RESET} (Desktop - macOS/Linux/Windows)"
+        echo -e "     https://featherwallet.org"
+        echo -e "     Lightweight, privacy-focused desktop wallet"
+        echo ""
+        echo -e "  ${CYAN}3. Official Monero GUI${RESET} (Desktop)"
+        echo -e "     https://getmonero.org/downloads"
+        echo -e "     Full-featured, can run own node"
+        echo ""
+        echo -e "  ${DIM}After creating a wallet, update your XMR address:${RESET}"
+        echo -e "  ${CYAN}Edit: $MACLOTTERY_DIR/miner/xmrig-config.json${RESET}"
+        echo -e "  ${DIM}Replace YOUR_XMR_ADDRESS_HERE with your address in all pool entries.${RESET}"
+    fi
+else
+    echo -e "  ${GREEN}✓${RESET} XMR address configured"
+fi
+
+echo ""
+
+# --- Make scripts executable ---
+chmod +x "$MACLOTTERY_DIR/scripts/dual-miner.sh"
+chmod +x "$MACLOTTERY_DIR/miner/build.sh"
+
+# --- Done ---
+echo -e "${BOLD}${CYAN}============================================${RESET}"
+echo -e "${BOLD}${GREEN}  MacLottery installation complete!${RESET}"
+echo -e "${BOLD}${CYAN}============================================${RESET}"
+echo ""
+echo -e "  ${BOLD}Quick start:${RESET}"
+echo -e "    ${CYAN}~/MacLottery/scripts/dual-miner.sh${RESET}       Start mining"
+echo -e "    ${CYAN}~/MacLottery/miner/MacMetalCLI --test${RESET}    Test GPU miner"
+echo -e "    ${CYAN}cd ~/MacLottery/dashboard && npm i && npm run dev${RESET}"
+echo -e "                                              Launch dashboard at http://localhost:3456"
+echo ""
+echo -e "  ${BOLD}Auto-start on login:${RESET}"
+echo -e "    ${CYAN}launchctl load ~/Library/LaunchAgents/com.maclottery.plist${RESET}"
+echo ""
+echo -e "  ${BOLD}Logs:${RESET}"
+echo -e "    BTC: ${DIM}$DATA_DIR/btc.log${RESET}"
+echo -e "    XMR: ${DIM}$DATA_DIR/xmr.log${RESET}"
+echo ""
+echo -e "  ${DIM}GPU -> BTC lottery  |  CPU -> XMR income  |  Happy mining!${RESET}"
+echo ""
