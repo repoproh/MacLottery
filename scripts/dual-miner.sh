@@ -300,6 +300,19 @@ while true; do
     # Check miners are alive and restart if crashed
     check_and_restart
 
+    # Check for block found marker
+    BLOCK_MARKER="$HOME/.maclottery/BLOCK_FOUND"
+    if [[ -f "$BLOCK_MARKER" ]]; then
+        BLOCK_INFO=$(cat "$BLOCK_MARKER" 2>/dev/null)
+        log "🎰🎰🎰 $BLOCK_INFO"
+        # macOS notification (works even headless via launchd)
+        osascript -e "display notification \"$BLOCK_INFO\" with title \"🎰 MACLOTTERY JACKPOT\" subtitle \"YOU MAY HAVE FOUND A BITCOIN BLOCK\" sound name \"Glass\"" 2>/dev/null || true
+        # Also say it out loud
+        say "Bitcoin block found. Check your wallet." 2>/dev/null &
+        # Rename marker so we don't re-alert
+        mv "$BLOCK_MARKER" "$BLOCK_MARKER.$(date +%s)" 2>/dev/null || true
+    fi
+
     # Thermal check
     if (( NOW - LAST_THERMAL >= THERMAL_CHECK_INTERVAL )); then
         check_thermal

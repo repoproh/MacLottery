@@ -1091,6 +1091,11 @@ func startMining() {
             // Check for potential block (very high difficulty)
             if zeros >= 72 {
                 Telemetry.shared.blockWon()
+                // Write marker file for monitoring script to detect
+                let marker = FileManager.default.homeDirectoryForCurrentUser.path + "/.maclottery/BLOCK_FOUND"
+                let info = "BLOCK FOUND at \(Date()) — zeros=\(zeros) nonce=0x\(String(format: "%08x", foundNonce))\n"
+                try? info.write(toFile: marker, atomically: true, encoding: .utf8)
+                print("\n🎰🎰🎰 POTENTIAL BLOCK FOUND! zeros=\(zeros) 🎰🎰🎰\n")
             }
         }
         
