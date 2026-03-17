@@ -10,6 +10,7 @@ GPU mines BTC (lottery) via Metal shaders. CPU mines XMR (income) via RandomX. L
 <img src="https://img.shields.io/badge/XMR-Pool_Mining-ff6600?style=flat-square&logo=monero" />
 <img src="https://img.shields.io/badge/License-MIT-green?style=flat-square" />
 </p>
+<img width="923" height="921" alt="image" src="https://github.com/user-attachments/assets/cd35de66-bad6-462a-8b9d-1ab908b5a6c4" />
 
 ## The Idea
 
